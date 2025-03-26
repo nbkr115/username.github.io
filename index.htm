@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medicine Search with OpenFDA</title>
+    <!-- TensorFlow.js and MobileNet for AI -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0"></script>
+    <!-- Tesseract.js for OCR (text recognition) -->
+    <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 50px auto;
+            text-align: center;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #2c3e50;
+        }
+
+        .search-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            width: 60%;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        #cameraContainer {
+            margin-top: 20px;
+        }
+
+        #video {
+            border-radius: 4px;
+        }
+
+        #result {
+            margin-top: 20px;
+            text-align: left;
+        }
+
+        #medicineName {
+            color: #e74c3c;
+        }
+
+        p {
+            margin: 10px 0;
+        }
+
+        strong {
+            color: #2c3e50;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Medicine Search</h1>
+        <div class="search-bar">
+            <input type="text" id="medicineInput" placeholder="Enter medicine name...">
+            <button onclick="searchMedicine()">Search</button>
+            <button onclick="startCamera()">Scan Medicine</button>
+        </div>
+        <div id="cameraContainer" style="display: none;">
+            <video id="video" width="300" height="200" autoplay style="border: 1px solid #ddd;"></video>
+            <canvas id="canvas" style="display: none;"></canvas>
+            <button onclick="stopCamera()">Stop Camera</button>
+        </div>
+        <div id="result">
+            <h2 id="medicineName"></h2>
+            <p><strong>Uses:</strong> <span id="uses"></span></p>
+            <p><strong>Side Effects:</strong> <span id="sideEffects"></span></p>
+        </div>
+    </div>
+
+    <script>
+        let video = null;
+        let stream = null;
+        let model = null;
+        let scanning = false;
+
+        // Replace with your OpenFDA API key
+        const API_KEY = "tsujfeTPzbH61hJzmWrKU4cYB6GnId7p3go20dZ1"; // Get it from https://open.fda.gov/apis/authentication/
+
+        // Load the MobileNet model on page load
+        async function loadModel() {
+            model = await mobilenet.load();
+            console.log("MobileNet model loaded");
+        }
+
+        loadModel();
+
+        function displayResult(medicineName, uses, sideEffects) {
+            const medicineNameElement = document.getElementById("medicineName");
+            const usesElement = document.getElementById("uses");
+            const sideEffectsElement = document.getElementById("sideEffects");
+
+            medicineNameElement.textContent = medicineName.charAt(0).toUpperCase() + medicineName.slice(1);
+            usesElement.textContent = uses || "No usage information available.";
+            sideEffectsElement.textContent = sideEffects || "No side effects information available.";
+        }
+
+        // Fetch medicine details from OpenFDA API
+        async function fetchMedicineDetails(medicineName) {
+            try {
+                const response = await fetch(
+                    `https://api.fda.gov/drug/label.json?api_key=${API_KEY}&search=openfda.brand_name:${medicineName}+openfda.generic_name:${medicineName}&limit=1`
+                );
+                const data = await response.json();
+                if (data.results && data.results[0]) {
+                    const result = data.results[0];
+                    return {
+                        uses: result.indications_and_usage?.[0] || "Usage info not found.",
+                        sideEffects: result.adverse_reactions?.[0] || "Side effects not found."
+                    };
+                } else {
+                    return {
+                        uses: "No matching medicine found in FDA database.",
+                        sideEffects: "No side effects available."
+                    };
+                }
+            } catch (error) {
+                console.error("Error fetching from OpenFDA:", error);
+                return {
+                    uses: "Error retrieving data.",
+                    sideEffects: "Error retrieving data."
+                };
+            }
+        }
+
+        async function searchMedicine() {
+            const input = document.getElementById("medicineInput").value.trim().toLowerCase();
+            if (!input) {
+                alert("Please enter a medicine name.");
+                return;
+            }
+            const details = await fetchMedicineDetails(input);
+            displayResult(input, details.uses, details.sideEffects);
+        }
+
+        async function startCamera() {
+            video = document.getElementById("video");
+            const canvasElement = document.getElementById("canvas");
+            const canvas = canvasElement.getContext("2d");
+            const cameraContainer = document.getElementById("cameraContainer");
+
+            cameraContainer.style.display = "block";
+
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                video.srcObject = stream;
+                video.play();
+
+                canvasElement.width = video.videoWidth;
+                canvasElement.height = video.videoHeight;
+
+                scanning = true;
+                scanFrame();
+            } catch (err) {
+                alert("Error accessing camera: " + err.message);
+                cameraContainer.style.display = "none";
+            }
+        }
+
+        async function scanFrame() {
+            if (!scanning || !video || !model) return;
+
+            const canvasElement = document.getElementById("canvas");
+            const canvas = canvasElement.getContext("2d");
+
+            canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
+
+            // Use Tesseract for text recognition (OCR) to detect medicine names
+            Tesseract.recognize(
+                canvasElement,
+                'eng',
+                { logger: m => console.log(m) }
+            ).then(async ({ data: { text } }) => {
+                const lowerText = text.toLowerCase().trim();
+                if (lowerText) {
+                    const medicineName = lowerText.split(/\s+/)[0];
+                    if (medicineName.length > 3) {
+                        const details = await fetchMedicineDetails(medicineName);
+                        displayResult(medicineName, details.uses, details.sideEffects);
+                        stopCamera();
+                        return;
+                    }
+                }
+            });
+
+            // Fallback: Use MobileNet for object detection
+            const image = tf.browser.fromPixels(canvasElement);
+            const predictions = await model.classify(image);
+            for (let pred of predictions) {
+                const label = pred.className.toLowerCase();
+                if (label.includes("pill") || label.includes("bottle") || label.includes("medicine")) {
+                    const medicineName = label.split(",")[0];
+                    const details = await fetchMedicineDetails(medicineName);
+                    displayResult(medicineName, details.uses, details.sideEffects);
+                    stopCamera();
+                    return;
+                }
+            }
+
+            requestAnimationFrame(scanFrame);
+        }
+
+        function stopCamera() {
+            scanning = false;
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            document.getElementById("cameraContainer").style.display = "none";
+        }
+    </script>
+</body>
+</html>
