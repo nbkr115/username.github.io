@@ -10,7 +10,6 @@
     <!-- Tesseract.js for OCR (text recognition) -->
     <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
     <style>
-        /* General Styles */
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
             background: url('https://images.unsplash.com/photo-1576091160550-2173dba999ef?ixlib=rb-4.0.3&auto=format&fit=crop&w=1350&q=80') no-repeat center center fixed;
@@ -42,7 +41,6 @@
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
         }
 
-        /* Search Bar */
         .search-bar {
             display: flex;
             align-items: center;
@@ -87,13 +85,13 @@
             background: linear-gradient(135deg, #2980b9, #1e6fa6);
         }
 
-        /* Camera Container */
         #cameraContainer {
             margin-top: 25px;
             padding: 15px;
             background: rgba(255, 255, 255, 0.9);
             border-radius: 10px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            text-align: center;
         }
 
         #video {
@@ -101,7 +99,6 @@
             border: 2px solid #3498db;
         }
 
-        /* Result Section */
         #result {
             margin-top: 25px;
             padding: 20px;
@@ -128,14 +125,6 @@
             font-weight: 600;
         }
 
-        /* Additional UI Enhancements */
-        .glass-effect {
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-
-        /* Responsive Design */
         @media (max-width: 600px) {
             .container {
                 margin: 20px;
@@ -178,6 +167,8 @@
         <div id="result">
             <h2 id="medicineName"></h2>
             <p><strong>Uses:</strong> <span id="uses"></span></p>
+            <p><strong>Usages:</strong> <span id="usages"></span></p>
+            <p><strong>Precautions:</strong> <span id="precautions"></span></p>
             <p><strong>Side Effects:</strong> <span id="sideEffects"></span></p>
         </div>
     </div>
@@ -188,10 +179,8 @@
         let model = null;
         let scanning = false;
 
-        // Replace with your OpenFDA API key (already included from your code)
         const API_KEY = "tsujfeTPzbH61hJzmWrKU4cYB6GnId7p3go20dZ1";
 
-        // Load the MobileNet model on page load
         async function loadModel() {
             model = await mobilenet.load();
             console.log("MobileNet model loaded");
@@ -199,17 +188,20 @@
 
         loadModel();
 
-        function displayResult(medicineName, uses, sideEffects) {
+        function displayResult(medicineName, uses, usages, precautions, sideEffects) {
             const medicineNameElement = document.getElementById("medicineName");
             const usesElement = document.getElementById("uses");
+            const usagesElement = document.getElementById("usages");
+            const precautionsElement = document.getElementById("precautions");
             const sideEffectsElement = document.getElementById("sideEffects");
 
             medicineNameElement.textContent = medicineName.charAt(0).toUpperCase() + medicineName.slice(1);
             usesElement.textContent = uses || "No usage information available.";
+            usagesElement.textContent = usages || "No specific usage instructions available.";
+            precautionsElement.textContent = precautions || "No precautions information available.";
             sideEffectsElement.textContent = sideEffects || "No side effects information available.";
         }
 
-        // Fetch medicine details from OpenFDA API
         async function fetchMedicineDetails(medicineName) {
             try {
                 const response = await fetch(
@@ -220,11 +212,15 @@
                     const result = data.results[0];
                     return {
                         uses: result.indications_and_usage?.[0] || "Usage info not found.",
+                        usages: result.dosage_and_administration?.[0] || "Dosage info not found.",
+                        precautions: result.warnings?.[0] || result.precautions?.[0] || "Precautions not found.",
                         sideEffects: result.adverse_reactions?.[0] || "Side effects not found."
                     };
                 } else {
                     return {
                         uses: "No matching medicine found in FDA database.",
+                        usages: "No usage instructions available.",
+                        precautions: "No precautions available.",
                         sideEffects: "No side effects available."
                     };
                 }
@@ -232,6 +228,8 @@
                 console.error("Error fetching from OpenFDA:", error);
                 return {
                     uses: "Error retrieving data.",
+                    usages: "Error retrieving data.",
+                    precautions: "Error retrieving data.",
                     sideEffects: "Error retrieving data."
                 };
             }
@@ -244,27 +242,33 @@
                 return;
             }
             const details = await fetchMedicineDetails(input);
-            displayResult(input, details.uses, details.sideEffects);
+            displayResult(input, details.uses, details.usages, details.precautions, details.sideEffects);
         }
 
         async function startCamera() {
             video = document.getElementById("video");
             const canvasElement = document.getElementById("canvas");
-            const canvas = canvasElement.getContext("2d");
             const cameraContainer = document.getElementById("cameraContainer");
+
+            canvasElement.width = 300;
+            canvasElement.height = 200;
 
             cameraContainer.style.display = "block";
 
             try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: "environment",
+                        width: 300,
+                        height: 200
+                    } 
+                });
                 video.srcObject = stream;
-                video.play();
-
-                canvasElement.width = video.videoWidth;
-                canvasElement.height = video.videoHeight;
-
-                scanning = true;
-                scanFrame();
+                video.onloadedmetadata = () => {
+                    video.play();
+                    scanning = true;
+                    scanFrame();
+                };
             } catch (err) {
                 alert("Error accessing camera: " + err.message);
                 cameraContainer.style.display = "none";
@@ -279,39 +283,37 @@
 
             canvas.drawImage(video, 0, 0, canvasElement.width, canvasElement.height);
 
-            // Use Tesseract for text recognition (OCR) to detect medicine names
-            Tesseract.recognize(
-                canvasElement,
-                'eng',
-                { logger: m => console.log(m) }
-            ).then(async ({ data: { text } }) => {
-                const lowerText = text.toLowerCase().trim();
-                if (lowerText) {
-                    const medicineName = lowerText.split(/\s+/)[0];
-                    if (medicineName.length > 3) {
-                        const details = await fetchMedicineDetails(medicineName);
-                        displayResult(medicineName, details.uses, details.sideEffects);
-                        stopCamera();
-                        return;
+            try {
+                const { data: { text } } = await Tesseract.recognize(
+                    canvasElement,
+                    'eng',
+                    { 
+                        logger: m => console.log(m),
+                        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789- '
+                    }
+                );
+
+                const detectedText = text.trim().toLowerCase();
+                if (detectedText) {
+                    const words = detectedText.split(/\s+/);
+                    for (let word of words) {
+                        if (word.length > 3) {
+                            console.log("Detected potential medicine name:", word);
+                            const details = await fetchMedicineDetails(word);
+                            if (details.uses !== "No matching medicine found in FDA database.") {
+                                displayResult(word, details.uses, details.usages, details.precautions, details.sideEffects);
+                                stopCamera();
+                                return;
+                            }
+                        }
                     }
                 }
-            });
 
-            // Fallback: Use MobileNet for object detection
-            const image = tf.browser.fromPixels(canvasElement);
-            const predictions = await model.classify(image);
-            for (let pred of predictions) {
-                const label = pred.className.toLowerCase();
-                if (label.includes("pill") || label.includes("bottle") || label.includes("medicine")) {
-                    const medicineName = label.split(",")[0];
-                    const details = await fetchMedicineDetails(medicineName);
-                    displayResult(medicineName, details.uses, details.sideEffects);
-                    stopCamera();
-                    return;
-                }
+                setTimeout(scanFrame, 1000);
+            } catch (error) {
+                console.error("Error during scanning:", error);
+                setTimeout(scanFrame, 1000);
             }
-
-            requestAnimationFrame(scanFrame);
         }
 
         function stopCamera() {
