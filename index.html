@@ -149,25 +149,27 @@
             text-align: center;
         }
 
-        p {
+        .medicine-info {
+            background: rgba(255,255,255,0.8);
+            padding: 15px;
+            border-radius: 10px;
             margin: 15px 0;
-            font-size: 1.1em;
-            line-height: 1.5;
-            text-align: left;
         }
 
-        strong {
-            display: block;
-            text-align: center;
-            font-weight: 700;
-            font-size: 1.2em;
-            margin-bottom: 5px;
+        body.dark-mode .medicine-info {
+            background: rgba(44, 62, 80, 0.8);
         }
 
-        #usesLabel { color: #27ae60; }
-        #usagesLabel { color: #e67e22; }
-        #precautionsLabel { color: #c0392b; }
-        #sideEffectsLabel { color: #8e44ad; }
+        .info-label {
+            display: inline;
+            font-weight: bold;
+            color: #3498db;
+            margin-right: 5px;
+        }
+
+        body.dark-mode .info-label {
+            color: #2980b9;
+        }
 
         #suggestions {
             position: absolute;
@@ -332,10 +334,13 @@
         <div id="loader" class="loader"></div>
         <div id="result">
             <h2 id="medicineName"></h2>
-            <p><strong id="usesLabel">Uses</strong> <span id="uses"></span></p>
-            <p><strong id="usagesLabel">Usages</strong> <span id="usages"></span></p>
-            <p><strong id="precautionsLabel">Precautions</strong> <span id="precautions"></span></p>
-            <p><strong id="sideEffectsLabel">Side Effects</strong> <span id="sideEffects"></span></p>
+            <div class="medicine-info">
+                <p><strong class="info-label">Type:</strong> <span id="medicineType"></span></p>
+                <p><strong class="info-label">Uses:</strong> <span id="uses"></span></p>
+                <p><strong class="info-label">Dosage:</strong> <span id="dosage"></span></p>
+                <p><strong class="info-label">Precautions:</strong> <span id="precautions"></span></p>
+                <p><strong class="info-label">Side Effects:</strong> <span id="sideEffects"></span></p>
+            </div>
             <button id="exportResults" onclick="exportResults()">Export Results as PDF</button>
         </div>
         <div id="history">
@@ -412,18 +417,23 @@
             document.getElementById("loader").style.display = show ? "block" : "none";
         }
 
-        function displayResult(medicineName, uses, usages, precautions, sideEffects) {
+        function displayResult(medicineName, details) {
             const medicineNameElement = document.getElementById("medicineName");
+            const medicineTypeElement = document.getElementById("medicineType");
             const usesElement = document.getElementById("uses");
-            const usagesElement = document.getElementById("usages");
+            const dosageElement = document.getElementById("dosage");
             const precautionsElement = document.getElementById("precautions");
             const sideEffectsElement = document.getElementById("sideEffects");
 
+            // Format name with first letter capitalized
             medicineNameElement.textContent = medicineName.charAt(0).toUpperCase() + medicineName.slice(1);
-            usesElement.textContent = uses || "No usage information available.";
-            usagesElement.textContent = usages || "No specific usage instructions available.";
-            precautionsElement.textContent = precautions || "No precautions information available.";
-            sideEffectsElement.textContent = sideEffects || "No side effects information available.";
+            
+            // Set default values if data is missing
+            medicineTypeElement.textContent = details.drug_class || "Not specified";
+            usesElement.innerHTML = details.uses || "No usage information available";
+            dosageElement.textContent = details.dosage || "Consult your doctor for dosage information";
+            precautionsElement.innerHTML = details.precautions || "No specific precautions listed";
+            sideEffectsElement.innerHTML = details.sideEffects || "No side effects information available";
         }
 
         function addToHistory(medicineName) {
@@ -453,6 +463,46 @@
             }
         }
 
+        // Helper functions to format the data
+        function formatList(text) {
+            if (!text) return null;
+            // Convert long text into bullet points
+            return text.split('. ')
+                .filter(item => item.trim().length > 0)
+                .map(item => `• ${item.trim().replace(/\.$/, '')}`)
+                .join('<br>');
+        }
+
+        function formatDosage(text) {
+            if (!text) return null;
+            // Extract key dosage information
+            const dosageMatch = text.match(/(\d+\s?mg?.+?(?:every|per|once).+?(?:day|hour|week))/i);
+            return dosageMatch ? dosageMatch[0] : text.split('.')[0];
+        }
+
+        function formatSideEffects(text) {
+            if (!text) return null;
+            // Separate common and serious side effects
+            const commonEffects = text.match(/(headache|nausea|dizziness|fatigue|diarrhea)/gi);
+            const seriousEffects = text.match(/(allergic reaction|chest pain|difficulty breathing|severe dizziness)/gi);
+            
+            let result = [];
+            if (commonEffects) result.push(`Common: ${commonEffects.slice(0,3).join(', ')}`);
+            if (seriousEffects) result.push(`Serious: ${seriousEffects.slice(0,3).join(', ')} (seek help)`);
+            
+            return result.join('<br>') || text.split('.')[0];
+        }
+
+        function getDefaultDetails() {
+            return {
+                drug_class: "Not specified",
+                uses: "No matching medicine found in FDA database",
+                dosage: "No dosage instructions available",
+                precautions: "No precautions available",
+                sideEffects: "No side effects available"
+            };
+        }
+
         async function fetchMedicineDetails(medicineName) {
             const fdaName = drugNameMap[medicineName.toLowerCase()] || medicineName;
             showLoader(true);
@@ -461,30 +511,22 @@
                     `https://api.fda.gov/drug/label.json?api_key=${API_KEY}&search=openfda.brand_name:${fdaName}+openfda.generic_name:${fdaName}&limit=1`
                 );
                 const data = await response.json();
+                
                 if (data.results && data.results[0]) {
                     const result = data.results[0];
                     return {
-                        uses: result.indications_and_usage?.[0] || "Usage info not found.",
-                        usages: result.dosage_and_administration?.[0] || "Dosage info not found.",
-                        precautions: result.warnings?.[0] || result.precautions?.[0] || "Precautions not found.",
-                        sideEffects: result.adverse_reactions?.[0] || "Side effects not found."
+                        drug_class: result.openfda?.pharm_class_epc?.[0] || "Not specified",
+                        uses: formatList(result.indications_and_usage?.[0]) || "Usage info not found",
+                        dosage: formatDosage(result.dosage_and_administration?.[0]) || "Dosage info not found",
+                        precautions: formatList(result.warnings?.[0] || result.precautions?.[0]) || "Precautions not found",
+                        sideEffects: formatSideEffects(result.adverse_reactions?.[0]) || "Side effects not found"
                     };
                 } else {
-                    return {
-                        uses: "No matching medicine found in FDA database.",
-                        usages: "No usage instructions available.",
-                        precautions: "No precautions available.",
-                        sideEffects: "No side effects available."
-                    };
+                    return getDefaultDetails();
                 }
             } catch (error) {
                 console.error("Error fetching from OpenFDA:", error);
-                return {
-                    uses: "Error retrieving data.",
-                    usages: "Error retrieving data.",
-                    precautions: "Error retrieving data.",
-                    sideEffects: "Error retrieving data."
-                };
+                return getDefaultDetails();
             } finally {
                 showLoader(false);
             }
@@ -497,7 +539,7 @@
                 return;
             }
             const details = await fetchMedicineDetails(input);
-            displayResult(input, details.uses, details.usages, details.precautions, details.sideEffects);
+            displayResult(input, details);
             if (!overrideName) addToHistory(input);
         }
 
@@ -533,8 +575,9 @@
 
         function exportResults() {
             const medicineName = document.getElementById("medicineName").textContent;
+            const medicineType = document.getElementById("medicineType").textContent;
             const uses = document.getElementById("uses").textContent;
-            const usages = document.getElementById("usages").textContent;
+            const dosage = document.getElementById("dosage").textContent;
             const precautions = document.getElementById("precautions").textContent;
             const sideEffects = document.getElementById("sideEffects").textContent;
 
@@ -580,8 +623,9 @@
             };
             
             // Add all sections
+            addSection('Type:', medicineType);
             addSection('Uses:', uses);
-            addSection('Usages:', usages);
+            addSection('Dosage:', dosage);
             addSection('Precautions:', precautions);
             addSection('Side Effects:', sideEffects);
             
@@ -670,7 +714,7 @@
         async function confirmScan() {
             const details = await fetchMedicineDetails(lastDetectedText);
             if (details.uses !== "No matching medicine found in FDA database.") {
-                displayResult(lastDetectedText, details.uses, details.usages, details.precautions, details.sideEffects);
+                displayResult(lastDetectedText, details);
                 addToHistory(lastDetectedText);
             }
             document.getElementById("scanConfirmation").style.display = "none";
