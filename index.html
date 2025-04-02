@@ -9,6 +9,9 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0"></script>
     <!-- Tesseract.js for OCR -->
     <script src="https://unpkg.com/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
+    <!-- jsPDF for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Arial, sans-serif;
@@ -210,6 +213,9 @@
         #history h3 {
             margin-top: 0;
             color: #2c3e50;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         body.dark-mode #history h3 {
@@ -262,6 +268,18 @@
 
         #exportResults {
             margin-top: 10px;
+        }
+
+        .clear-history {
+            background: #e74c3c;
+            padding: 5px 10px;
+            font-size: 0.8em;
+            border-radius: 5px;
+            color: white;
+        }
+
+        .clear-history:hover {
+            background: #c0392b;
         }
 
         @media (max-width: 600px) {
@@ -318,15 +336,18 @@
             <p><strong id="usagesLabel">Usages</strong> <span id="usages"></span></p>
             <p><strong id="precautionsLabel">Precautions</strong> <span id="precautions"></span></p>
             <p><strong id="sideEffectsLabel">Side Effects</strong> <span id="sideEffects"></span></p>
-            <button id="exportResults" onclick="exportResults()">Export Results</button>
+            <button id="exportResults" onclick="exportResults()">Export Results as PDF</button>
         </div>
         <div id="history">
-            <h3>Search History</h3>
+            <h3>Search History <button class="clear-history" onclick="clearHistory()">Clear History</button></h3>
             <ul id="historyList"></ul>
         </div>
     </div>
 
     <script>
+        // Initialize jsPDF
+        const { jsPDF } = window.jspdf;
+        
         let video = null;
         let stream = null;
         let model = null;
@@ -424,6 +445,14 @@
             });
         }
 
+        function clearHistory() {
+            if (confirm("Are you sure you want to clear your search history?")) {
+                searchHistory = [];
+                localStorage.removeItem('searchHistory');
+                updateHistoryUI();
+            }
+        }
+
         async function fetchMedicineDetails(medicineName) {
             const fdaName = drugNameMap[medicineName.toLowerCase()] || medicineName;
             showLoader(true);
@@ -509,14 +538,60 @@
             const precautions = document.getElementById("precautions").textContent;
             const sideEffects = document.getElementById("sideEffects").textContent;
 
-            const content = `Medicine: ${medicineName}\n\nUses: ${uses}\n\nUsages: ${usages}\n\nPrecautions: ${precautions}\n\nSide Effects: ${sideEffects}`;
-            const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${medicineName}_info.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
+            // Create a new PDF document
+            const doc = new jsPDF();
+            
+            // Set initial y position
+            let yPos = 20;
+            
+            // Add title
+            doc.setFontSize(18);
+            doc.setTextColor(40);
+            doc.text(`Medicine Information: ${medicineName}`, 105, yPos, { align: 'center' });
+            yPos += 15;
+            
+            // Add divider line
+            doc.setDrawColor(200);
+            doc.line(20, yPos, 190, yPos);
+            yPos += 15;
+            
+            // Set font for content
+            doc.setFontSize(12);
+            doc.setTextColor(80);
+            
+            // Function to add section with proper line breaks
+            const addSection = (title, content) => {
+                // Add section title
+                doc.setFont(undefined, 'bold');
+                doc.text(title, 20, yPos);
+                yPos += 7;
+                
+                // Add section content with line breaks
+                doc.setFont(undefined, 'normal');
+                const splitText = doc.splitTextToSize(content, 170);
+                doc.text(splitText, 20, yPos);
+                yPos += (splitText.length * 7) + 15;
+                
+                // Add space between sections and handle page breaks
+                if (yPos > 250) {
+                    doc.addPage();
+                    yPos = 20;
+                }
+            };
+            
+            // Add all sections
+            addSection('Uses:', uses);
+            addSection('Usages:', usages);
+            addSection('Precautions:', precautions);
+            addSection('Side Effects:', sideEffects);
+            
+            // Add footer
+            doc.setFontSize(10);
+            doc.setTextColor(150);
+            doc.text('Generated by Advanced Medicine Search', 105, 285, { align: 'center' });
+            
+            // Save the PDF
+            doc.save(`${medicineName}_information.pdf`);
         }
 
         async function startCamera() {
