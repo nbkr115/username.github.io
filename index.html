@@ -17,6 +17,12 @@
             margin: 0;
             padding: 0;
             color: #333;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body.dark-mode {
+            background: #2c3e50;
+            color: #ecf0f1;
         }
 
         .container {
@@ -27,7 +33,11 @@
             border-radius: 15px;
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
             backdrop-filter: blur(5px);
-            transition: transform 0.3s ease;
+            transition: transform 0.3s ease, background 0.3s;
+        }
+
+        .container.dark-mode {
+            background: rgba(44, 62, 80, 0.95);
         }
 
         .container:hover {
@@ -41,6 +51,10 @@
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
         }
 
+        body.dark-mode h1 {
+            color: #ecf0f1;
+        }
+
         .search-bar {
             display: flex;
             align-items: center;
@@ -50,6 +64,10 @@
             border-radius: 10px;
             box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.05);
             position: relative;
+        }
+
+        body.dark-mode .search-bar {
+            background: #34495e;
         }
 
         input[type="text"] {
@@ -62,6 +80,10 @@
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
             outline: none;
             transition: box-shadow 0.3s ease;
+        }
+
+        body.dark-mode input[type="text"] {
+            background: #ecf0f1;
         }
 
         input[type="text"]:focus {
@@ -95,6 +117,10 @@
             text-align: center;
         }
 
+        body.dark-mode #cameraContainer {
+            background: rgba(44, 62, 80, 0.9);
+        }
+
         #video {
             border-radius: 10px;
             border: 2px solid #3498db;
@@ -106,6 +132,10 @@
             background: #f1f3f5;
             border-radius: 10px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        body.dark-mode #result {
+            background: #34495e;
         }
 
         #medicineName {
@@ -149,6 +179,10 @@
             display: none;
         }
 
+        body.dark-mode #suggestions {
+            background: #ecf0f1;
+        }
+
         #suggestions div {
             padding: 10px;
             cursor: pointer;
@@ -158,6 +192,10 @@
             background: #f0f0f0;
         }
 
+        body.dark-mode #suggestions div:hover {
+            background: #bdc3c7;
+        }
+
         #history {
             margin-top: 25px;
             padding: 15px;
@@ -165,9 +203,17 @@
             border-radius: 10px;
         }
 
+        body.dark-mode #history {
+            background: #34495e;
+        }
+
         #history h3 {
             margin-top: 0;
             color: #2c3e50;
+        }
+
+        body.dark-mode #history h3 {
+            color: #ecf0f1;
         }
 
         #historyList {
@@ -195,9 +241,27 @@
             margin: 0 auto;
         }
 
+        body.dark-mode .loader {
+            border: 4px solid #34495e;
+            border-top: 4px solid #3498db;
+        }
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+        }
+
+        #scanConfirmation {
+            margin-top: 10px;
+            display: none;
+        }
+
+        #toggleDarkMode {
+            margin-left: 10px;
+        }
+
+        #exportResults {
+            margin-top: 10px;
         }
 
         @media (max-width: 600px) {
@@ -233,11 +297,18 @@
             <input type="text" id="medicineInput" placeholder="Enter medicine name...">
             <div id="suggestions"></div>
             <button onclick="searchMedicine()">Search</button>
-            <button onclick="startCamera()">Scan Medicine</button>
+            <button onclick="startVoiceRecognition()">Voice</button>
+            <button onclick="startCamera()">Scan</button>
+            <button id="toggleDarkMode" onclick="toggleDarkMode()">Dark Mode</button>
         </div>
         <div id="cameraContainer" style="display: none;">
             <video id="video" width="300" height="200" autoplay></video>
             <canvas id="canvas" style="display: none;"></canvas>
+            <div id="scanConfirmation">
+                <p>Detected: <span id="detectedText"></span></p>
+                <button onclick="confirmScan()">Confirm</button>
+                <button onclick="continueScanning()">Retry</button>
+            </div>
             <button onclick="stopCamera()">Stop Camera</button>
         </div>
         <div id="loader" class="loader"></div>
@@ -247,6 +318,7 @@
             <p><strong id="usagesLabel">Usages</strong> <span id="usages"></span></p>
             <p><strong id="precautionsLabel">Precautions</strong> <span id="precautions"></span></p>
             <p><strong id="sideEffectsLabel">Side Effects</strong> <span id="sideEffects"></span></p>
+            <button id="exportResults" onclick="exportResults()">Export Results</button>
         </div>
         <div id="history">
             <h3>Search History</h3>
@@ -260,11 +332,10 @@
         let model = null;
         let scanning = false;
         let searchHistory = JSON.parse(localStorage.getItem('searchHistory')) || [];
+        let lastDetectedText = "";
 
         const API_KEY = "tsujfeTPzbH61hJzmWrKU4cYB6GnId7p3go20dZ1";
         const drugNameMap = { "paracetamol": "acetaminophen" };
-
-        // Sample list for auto-suggestions
         const commonMedicines = [
             "acetaminophen", "ibuprofen", "aspirin", "amoxicillin", "lisinopril",
             "metformin", "atorvastatin", "omeprazole", "paracetamol"
@@ -311,8 +382,9 @@
                 }
             });
 
-            // Load history
+            // Load history and dark mode preference
             updateHistoryUI();
+            if (localStorage.getItem('darkMode') === 'true') toggleDarkMode(true);
         });
 
         function showLoader(show) {
@@ -336,7 +408,7 @@
         function addToHistory(medicineName) {
             const timestamp = new Date().toLocaleString();
             searchHistory.unshift({ name: medicineName, time: timestamp });
-            if (searchHistory.length > 10) searchHistory.pop(); // Limit to 10 items
+            if (searchHistory.length > 10) searchHistory.pop();
             localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
             updateHistoryUI();
         }
@@ -397,7 +469,54 @@
             }
             const details = await fetchMedicineDetails(input);
             displayResult(input, details.uses, details.usages, details.precautions, details.sideEffects);
-            if (!overrideName) addToHistory(input); // Only add to history if not from history click
+            if (!overrideName) addToHistory(input);
+        }
+
+        function startVoiceRecognition() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert("Sorry, your browser doesn't support voice recognition.");
+                return;
+            }
+            const recognition = new webkitSpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = "en-US";
+
+            recognition.onstart = () => showLoader(true);
+            recognition.onresult = (event) => {
+                const spokenText = event.results[0][0].transcript.trim().toLowerCase();
+                document.getElementById("medicineInput").value = spokenText;
+                searchMedicine();
+            };
+            recognition.onerror = (event) => console.error("Voice recognition error:", event.error);
+            recognition.onend = () => showLoader(false);
+
+            recognition.start();
+        }
+
+        function toggleDarkMode(initial = false) {
+            const body = document.body;
+            const container = document.querySelector(".container");
+            body.classList.toggle("dark-mode");
+            container.classList.toggle("dark-mode");
+            if (!initial) localStorage.setItem('darkMode', body.classList.contains("dark-mode"));
+        }
+
+        function exportResults() {
+            const medicineName = document.getElementById("medicineName").textContent;
+            const uses = document.getElementById("uses").textContent;
+            const usages = document.getElementById("usages").textContent;
+            const precautions = document.getElementById("precautions").textContent;
+            const sideEffects = document.getElementById("sideEffects").textContent;
+
+            const content = `Medicine: ${medicineName}\n\nUses: ${uses}\n\nUsages: ${usages}\n\nPrecautions: ${precautions}\n\nSide Effects: ${sideEffects}`;
+            const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${medicineName}_info.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
         }
 
         async function startCamera() {
@@ -455,13 +574,11 @@
                     for (let word of words) {
                         if (word.length > 3) {
                             console.log("Detected potential medicine name:", word);
-                            const details = await fetchMedicineDetails(word);
-                            if (details.uses !== "No matching medicine found in FDA database.") {
-                                displayResult(word, details.uses, details.usages, details.precautions, details.sideEffects);
-                                addToHistory(word);
-                                stopCamera();
-                                return;
-                            }
+                            lastDetectedText = word;
+                            document.getElementById("detectedText").textContent = word;
+                            document.getElementById("scanConfirmation").style.display = "block";
+                            scanning = false; // Pause scanning for confirmation
+                            return;
                         }
                     }
                 }
@@ -475,6 +592,22 @@
             }
         }
 
+        async function confirmScan() {
+            const details = await fetchMedicineDetails(lastDetectedText);
+            if (details.uses !== "No matching medicine found in FDA database.") {
+                displayResult(lastDetectedText, details.uses, details.usages, details.precautions, details.sideEffects);
+                addToHistory(lastDetectedText);
+            }
+            document.getElementById("scanConfirmation").style.display = "none";
+            stopCamera();
+        }
+
+        function continueScanning() {
+            document.getElementById("scanConfirmation").style.display = "none";
+            scanning = true;
+            scanFrame();
+        }
+
         function stopCamera() {
             scanning = false;
             if (stream) {
@@ -482,6 +615,7 @@
                 stream = null;
             }
             document.getElementById("cameraContainer").style.display = "none";
+            document.getElementById("scanConfirmation").style.display = "none";
         }
     </script>
 </body>
